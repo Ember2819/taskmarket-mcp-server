@@ -86,10 +86,37 @@ server.setRequestHandler(ListToolsRequestSchema, () => ({
           file_paths: { type: "array", items: { type: "string" }, description: "Local file paths to upload" },
           role: { type: "string", description: "Artifact role: preview, source, final, or attachment" },
         },
-        required: ["task_id"],
-      },
-    },
-  ],
+         required: ["task_id"],
+       },
+     },
+     {
+       name: "check_balance",
+       description: "Check USDC balance on Base mainnet for the connected wallet.",
+       inputSchema: {
+         type: "object",
+         properties: {
+           wallet_address: { type: "string", description: "Wallet address to check (optional, defaults to connected wallet)" },
+           api_key: { type: "string", description: "TaskMarket API key (required for authenticated balance)" },
+         },
+       },
+     },
+     {
+       name: "create_task",
+       description: "Create a new TaskMarket task. Requires TaskMarket API key and USDC for the escrow.",
+       inputSchema: {
+         type: "object",
+         properties: {
+           description: { type: "string", description: "Full task description" },
+           reward_usdc: { type: "number", description: "Reward in USDC" },
+           duration_hours: { type: "number", description: "Task deadline in hours" },
+           mode: { type: "string", description: "Task mode: bounty, claim, pitch, benchmark, or auction" },
+           tags: { type: "array", items: { type: "string" }, description: "Tags for the task" },
+           api_key: { type: "string", description: "TaskMarket API key" },
+         },
+         required: ["description", "reward_usdc", "api_key"],
+       },
+     },
+   ],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -127,8 +154,18 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   if (name === "get_task") {
     const taskId = args?.task_id;
     if (!taskId) throw new Error("task_id is required");
-    const data = await api(`/${taskId}`);
+    const data = await api(`/tasks/${taskId}`);
     const t = data.task || data;
+    if (!t || !t.id) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Task not found or error: ${JSON.stringify(data)[:200]}`,
+          },
+        ],
+      };
+    }
     return {
       content: [
         {
@@ -186,6 +223,99 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         {
           type: "text",
           text: `Submission results for task ${taskId}:\n` + results.join("\n"),
+        },
+      ],
+    };
+  }
+
+   if (name === "check_balance") {
+    const apiKey = args?.api_key || getApiKey();
+    if (!apiKey) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "ERROR: API key is required to check balance. Set TASKMARKET_API_KEY env var or pass api_key parameter.",
+          },
+        ],
+      };
+    }
+
+    const res = await fetch(`${TM_API}/wallet/balance`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (!res.ok) {
+      const t = await res.text();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Balance check failed: HTTP ${res.status} ${t.slice(0, 200)}`,
+          },
+        ],
+      };
+    }
+
+    const data = await res.json();
+    return {
+      content: [
+        {
+          type: "text",
+          text: `USDC Balance: ${data.data?.balanceUsdc || data.data?.balance || "0"} USDC\nAddress: ${data.data?.address || "unknown"}\nNetwork: ${data.data?.network || "Base"}`,
+        },
+      ],
+    };
+  }
+
+  if (name === "create_task") {
+    const key = args?.api_key || getApiKey();
+    if (!key) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "ERROR: API key is required to create tasks.",
+          },
+        ],
+      };
+    }
+
+    const payload = {
+      description: args.description,
+      reward: Math.round(args.reward_usdc * 1e6),
+      duration: args.duration_hours || 24,
+      mode: args.mode || "bounty",
+      tags: args.tags || [],
+    };
+
+    const res = await fetch(`${TM_API}/tasks`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const t = await res.text();
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Task creation failed: HTTP ${res.status} ${t.slice(0, 200)}`,
+          },
+        ],
+      };
+    }
+
+    const result = await res.json();
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Task created! ID: ${result.data?.id || result.id || "unknown"}\nStatus: ${result.data?.status || "created"}`,
         },
       ],
     };
