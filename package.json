@@ -1,0 +1,23 @@
+{
+  "name": "taskmarket-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server exposing TaskMarket tools for AI agents — list tasks, get details, create tasks, submit work",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "taskmarket-mcp-server": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.6.0",
+    "commander": "^12.1.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^20.16.0"
+  }
+}
